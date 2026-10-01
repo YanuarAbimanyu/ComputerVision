@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Detection</title>
+
+    <!-- 1. TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <!-- 2. Model COCO-SSD (harus SETELAH tfjs) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+    <!-- 3. Firebase (versi compat, cocok dengan firebase.initializeApp di app.js)
+         Hapus 2 baris ini jika ingin selalu memakai Demo Mode -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- Status database (diisi oleh app.js) -->
+    <span id="db-status" class="status-badge demo">DEMO MODE</span>
+
+    <div id="camera-container">
+
+        <!-- Layer 1: Video stream dari kamera -->
+        <video id="video" autoplay playsinline muted></video>
+
+        <!-- Layer 2: Canvas untuk menggambar bounding box -->
+        <canvas id="canvas"></canvas>
+
+        <!-- Layer 3: Overlay untuk pesan loading/error -->
+        <div id="overlay-msg">
+            <div class="spinner"></div>
+            <p id="overlay-text">Memulai Sistem...</p>
+        </div>
+
+    </div>
+
+    <!-- Tombol kontrol AI -->
+    <button id="btn-ai" class="btn btn-success">Start AI</button>
+
+    <!-- app.js dimuat PALING AKHIR, setelah semua elemen dan library -->
+    <script src="app.js"></script>
+</body>
+
+</html>

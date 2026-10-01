@@ -1,0 +1,119 @@
+body {
+    margin: 0;
+    padding: 12px;
+    font-family: sans-serif;
+    background: #111827;
+}
+
+/* ==========================================
+   CONTAINER KAMERA
+========================================== */
+#camera-container {
+    position: relative;
+    width: 100%;
+    max-width: 900px;
+    margin: 12px auto;
+    /* min-height agar overlay "Memulai Sistem..." terlihat
+       sebelum video selesai dimuat */
+    min-height: 240px;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* ==========================================
+   LAYER 1: VIDEO
+========================================== */
+#video {
+    display: block;
+    width: 100%;
+    height: auto;
+    /* Tinggi mengikuti rasio asli video, sehingga canvas
+       (yang menutupi 100% container) tetap pas dan bounding box tidak meleset.
+       Jangan pakai object-fit: cover di sini. */
+}
+
+/* ==========================================
+   LAYER 2: CANVAS
+========================================== */
+#canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* ==========================================
+   LAYER 3: OVERLAY
+========================================== */
+#overlay-msg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    color: white;
+    text-align: center;
+    padding: 16px;
+    box-sizing: border-box;
+    z-index: 5;
+}
+
+/* ==========================================
+   SPINNER
+========================================== */
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-top: 4px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 15px;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ==========================================
+   TOMBOL (class ini diganti-ganti oleh app.js)
+========================================== */
+.btn {
+    display: block;
+    margin: 0 auto;
+    padding: 12px 28px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #fff;
+    cursor: pointer;
+}
+
+.btn-success { background: #10b981; }
+.btn-danger  { background: #ef4444; }
+
+/* ==========================================
+   BADGE STATUS DATABASE
+========================================== */
+.status-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: bold;
+    color: #fff;
+}
+
+.status-badge.online { background: #10b981; }
+.status-badge.demo   { background: #f59e0b; }
