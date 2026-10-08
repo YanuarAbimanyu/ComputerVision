@@ -3,8 +3,14 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Camera Detection</title>
+    <!-- viewport-fit=cover: layar penuh sampai area notch, dijaga lewat safe-area di CSS -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0b1220">
+    <title>Deteksi Objek</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet">
 
     <!-- 1. TensorFlow.js -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
@@ -21,27 +27,81 @@
 
 <body>
 
-    <!-- Status database (diisi oleh app.js) -->
-    <span id="db-status" class="status-badge demo">DEMO MODE</span>
+    <div id="app">
 
-    <div id="camera-container">
+        <!-- Area kamera memenuhi seluruh aplikasi; bar atas & dock melayang di atasnya -->
+        <div id="camera-container">
 
-        <!-- Layer 1: Video stream dari kamera -->
-        <video id="video" autoplay playsinline muted></video>
+            <!-- Layer 1: Video stream dari kamera -->
+            <video id="video" autoplay playsinline muted></video>
 
-        <!-- Layer 2: Canvas untuk menggambar bounding box -->
-        <canvas id="canvas"></canvas>
+            <!-- Layer 2: Canvas untuk menggambar bounding box -->
+            <canvas id="canvas"></canvas>
 
-        <!-- Layer 3: Overlay untuk pesan loading/error -->
-        <div id="overlay-msg">
-            <div class="spinner"></div>
-            <p id="overlay-text">Memulai Sistem...</p>
+            <!-- Layer 3: Pesan status kamera (mati / menyalakan / error) -->
+            <div id="overlay-msg" hidden>
+                <div class="spinner" id="overlay-spinner"></div>
+                <p id="overlay-title"></p>
+                <p id="overlay-text"></p>
+            </div>
         </div>
 
-    </div>
+        <!-- Bar atas -->
+        <header class="topbar">
+            <h1>Deteksi Objek</h1>
+            <span id="db-status" class="status-badge demo">Mode demo</span>
+        </header>
 
-    <!-- Tombol kontrol AI -->
-    <button id="btn-ai" class="btn btn-success">Start AI</button>
+        <!-- Info model AI sedang dimuat -->
+        <div id="model-chip" class="model-chip" hidden>
+            <span class="spinner-sm"></span>
+            <span id="model-chip-text">Memuat model AI…</span>
+        </div>
+
+        <!-- Dock kontrol -->
+        <footer class="dock">
+            <button id="btn-ai" class="btn btn-success" type="button" disabled>Memuat AI…</button>
+
+            <div class="controls">
+                <button id="btn-camera" class="ctrl is-on" type="button" aria-pressed="true">
+                    <span class="ctrl-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 7h3l1.6-2h6.8L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" />
+                            <circle cx="12" cy="13" r="3.6" />
+                            <line class="slash" x1="4" y1="3.5" x2="20" y2="20.5" />
+                        </svg>
+                    </span>
+                    <span class="ctrl-label" id="label-camera">Kamera aktif</span>
+                </button>
+
+                <button id="btn-flash" class="ctrl" type="button" aria-pressed="false">
+                    <span class="ctrl-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M13 2.5 5 13.5h6l-1 8 8-11h-6l1-8z" />
+                            <line class="slash" x1="4" y1="3.5" x2="20" y2="20.5" />
+                        </svg>
+                    </span>
+                    <span class="ctrl-label" id="label-flash">Flash mati</span>
+                </button>
+
+                <button id="btn-switch" class="ctrl" type="button">
+                    <span class="ctrl-icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M20 8V5h-3" />
+                            <path d="M20 5a9 9 0 0 0-15.4 3.2" />
+                            <path d="M4 16v3h3" />
+                            <path d="M4 19a9 9 0 0 0 15.4-3.2" />
+                        </svg>
+                    </span>
+                    <span class="ctrl-label" id="label-switch">Kamera belakang</span>
+                </button>
+            </div>
+        </footer>
+
+        <!-- Toast -->
+        <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    </div>
 
     <!-- app.js dimuat PALING AKHIR, setelah semua elemen dan library -->
     <script src="app.js"></script>

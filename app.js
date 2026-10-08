@@ -106,8 +106,6 @@ function initDatabase() {
   const dbStatusEl = document.getElementById("db-status");
 
   // Pakai Firebase hanya jika apiKey terisi DAN library firebase sudah dimuat
-  // (kode lama membandingkan apiKey dengan nilainya sendiri, sehingga
-  //  kondisinya selalu false dan selalu jatuh ke Mock Mode)
   if (
     firebaseConfig.apiKey &&
     firebaseConfig.projectId &&
@@ -122,7 +120,7 @@ function initDatabase() {
       isMockMode = false;
 
       if (dbStatusEl) {
-        dbStatusEl.textContent = "FIREBASE ONLINE";
+        dbStatusEl.textContent = "Firebase online";
         dbStatusEl.className = "status-badge online";
       }
       console.log("Firebase berhasil terhubung.");
@@ -137,7 +135,7 @@ function initDatabase() {
     db = new MockFirestore();
 
     if (dbStatusEl) {
-      dbStatusEl.textContent = "DEMO MODE";
+      dbStatusEl.textContent = "Mode demo";
       dbStatusEl.className = "status-badge demo";
     }
     console.log("Menggunakan Mock Database.");
@@ -145,94 +143,340 @@ function initDatabase() {
 }
 
 // ==========================================
-// UI HELPER (sebelumnya dipanggil tapi belum didefinisikan)
+// ELEMEN & STATE UI
 // ==========================================
 
-function showOverlay(title, desc = "") {
-  const overlay = document.getElementById("overlay-msg");
-  const text = document.getElementById("overlay-text");
-  if (text) text.textContent = desc ? `${title} — ${desc}` : title;
-  if (overlay) overlay.style.display = "flex";
+const $ = (id) => document.getElementById(id);
+
+const videoEl = $("video");
+const canvasEl = $("canvas");
+const ctx = canvasEl.getContext("2d");
+
+const btnAI = $("btn-ai");
+const btnCamera = $("btn-camera");
+const btnFlash = $("btn-flash");
+const btnSwitch = $("btn-switch");
+
+// ------------------------------------------
+// Toast
+// ------------------------------------------
+let toastTimer = null;
+
+function showToast(message, type = "ok") {
+  const el = $("toast");
+  el.textContent = message;
+  el.className = type === "warn" ? "toast warn" : "toast";
+  el.hidden = false;
+
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    el.hidden = true;
+  }, 2500);
 }
 
-function hideOverlay() {
-  const overlay = document.getElementById("overlay-msg");
-  if (overlay) overlay.style.display = "none";
+// ------------------------------------------
+// Overlay status kamera (mati / menyalakan / error)
+// ------------------------------------------
+let cameraStatus = "off"; // "off" | "starting" | "on" | "error"
+let cameraErrorText = "";
+
+function renderOverlay() {
+  const overlay = $("overlay-msg");
+  const spinner = $("overlay-spinner");
+  const title = $("overlay-title");
+  const text = $("overlay-text");
+
+  if (cameraStatus === "on") {
+    overlay.hidden = true;
+    return;
+  }
+
+  const content = {
+    starting: { spin: true, title: "Menyalakan kamera…", text: "" },
+    error: {
+      spin: false,
+      title: "Kamera tidak bisa dibuka",
+      text: cameraErrorText,
+    },
+    off: {
+      spin: false,
+      title: "Kamera nonaktif",
+      text: "Ketuk tombol Kamera untuk menyalakan.",
+    },
+  }[cameraStatus];
+
+  spinner.hidden = !content.spin;
+  title.textContent = content.title;
+  text.textContent = content.text;
+  overlay.hidden = false;
 }
 
-function showToast(message) {
-  const toast = document.createElement("div");
-  toast.textContent = message;
-  toast.style.cssText =
-    "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);" +
-    "background:#10b981;color:#fff;padding:10px 18px;border-radius:8px;" +
-    "font:14px sans-serif;z-index:9999;";
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 2500);
+function setCameraStatus(status, errorText = "") {
+  cameraStatus = status;
+  cameraErrorText = errorText;
+  renderOverlay();
+  updateControlsUI();
 }
 
 // ==========================================
 // KAMERA
 // ==========================================
 
+let currentStream = null;
+let facingMode = "environment"; // kamera belakang dulu (cocok untuk scan inventaris)
 let isCameraOn = false;
+let isFrontCamera = false; // dipakai untuk mencerminkan video & bounding box
+let cameraBusy = false; // cegah ketukan ganda saat kamera sedang diproses
 
+let torchSupported = false;
+let torchOn = false;
+
+function cameraErrorMessage(err) {
+  switch (err && err.name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return "Izin kamera ditolak. Izinkan akses kamera di pengaturan browser, lalu ketuk tombol Kamera.";
+    case "NotFoundError":
+    case "OverconstrainedError":
+      return "Kamera tidak ditemukan di perangkat ini.";
+    case "NotReadableError":
+      return "Kamera sedang dipakai aplikasi lain. Tutup aplikasi itu, lalu coba lagi.";
+    default:
+      return "Pastikan halaman dibuka lewat HTTPS atau localhost.";
+  }
+}
+
+// Cek apakah kamera yang aktif punya lampu flash (torch)
+function detectTorchSupport(track) {
+  let caps = {};
+  try {
+    caps = track.getCapabilities ? track.getCapabilities() : {};
+  } catch (e) {
+    caps = {};
+  }
+  torchSupported = !!caps.torch;
+  torchOn = false;
+  updateControlsUI();
+}
+
+// Mengembalikan true jika kamera berhasil menyala
 async function startCamera() {
-  const video = document.getElementById("video");
+  stopCamera({ silent: true }); // pastikan stream lama benar-benar mati
+  setCameraStatus("starting");
 
   try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("mediaDevices tidak tersedia");
+    }
+
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: "environment", // kamera belakang di mobile
+        // "ideal" (bukan "exact") supaya tetap jalan di laptop yang hanya punya 1 kamera
+        facingMode: { ideal: facingMode },
         width: { ideal: 1280 },
         height: { ideal: 720 },
       },
       audio: false,
     });
 
-    video.srcObject = stream;
+    const track = stream.getVideoTracks()[0];
+    const settings = track.getSettings ? track.getSettings() : {};
 
-    await new Promise((resolve) => {
-      video.onloadedmetadata = () => {
-        console.log(
-          "Resolusi kamera:",
-          video.videoWidth,
-          "x",
-          video.videoHeight,
-        );
-        resolve();
-      };
+    currentStream = stream;
+    isFrontCamera = (settings.facingMode || facingMode) === "user";
+    videoEl.classList.toggle("mirrored", isFrontCamera);
+
+    // Jika kamera dicabut / diambil aplikasi lain di tengah jalan
+    track.addEventListener("ended", () => {
+      if (currentStream === stream && isCameraOn) {
+        stopCamera();
+        showToast("Kamera terputus.", "warn");
+      }
     });
 
-    await video.play();
+    videoEl.srcObject = stream;
+
+    await new Promise((resolve) => {
+      if (videoEl.readyState >= 1) return resolve();
+      videoEl.onloadedmetadata = () => resolve();
+    });
+
+    await videoEl.play();
     isCameraOn = true;
 
-    // Samakan ukuran canvas dengan resolusi video
-    const canvas = document.getElementById("canvas");
-    if (canvas) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    }
+    console.log(
+      "Resolusi kamera:",
+      videoEl.videoWidth,
+      "x",
+      videoEl.videoHeight,
+    );
 
-    hideOverlay();
+    resizeCanvas();
+    detectTorchSupport(track);
+    setCameraStatus("on");
+
+    // Jika AI sedang aktif (misal habis ganti kamera), lanjutkan deteksi
+    if (isAIDetecting) detectLoop();
+
     console.log("Kamera berhasil dinyalakan!");
+    return true;
   } catch (err) {
     console.error("Gagal akses kamera:", err);
-    showOverlay(
-      "Gagal mengakses kamera",
-      "Pastikan izin kamera diberikan dan halaman dibuka lewat HTTPS/localhost.",
-    );
+    stopCamera({ silent: true });
+    setCameraStatus("error", cameraErrorMessage(err));
+    return false;
   }
 }
 
-function stopCamera() {
-  const video = document.getElementById("video");
-
-  if (video.srcObject) {
-    video.srcObject.getTracks().forEach((track) => track.stop());
-    video.srcObject = null;
+// silent: true => jangan ubah tampilan overlay (dipakai saat restart kamera)
+function stopCamera({ silent = false } = {}) {
+  if (currentStream) {
+    currentStream.getTracks().forEach((track) => track.stop());
+    currentStream = null;
   }
+  videoEl.srcObject = null;
+
   isCameraOn = false;
+  torchOn = false;
+  torchSupported = false;
+  clearCanvas();
+
+  if (!silent) setCameraStatus("off");
+}
+
+// ------------------------------------------
+// Tombol: nyalakan / matikan kamera
+// ------------------------------------------
+async function handleCameraToggle() {
+  if (cameraBusy) return;
+  cameraBusy = true;
+
+  try {
+    if (isCameraOn) {
+      setAI(false); // tanpa kamera, AI tidak ada yang dianalisis
+      stopCamera();
+    } else {
+      await startCamera();
+    }
+  } finally {
+    cameraBusy = false;
+  }
+}
+
+// ------------------------------------------
+// Tombol: flash (torch)
+// ------------------------------------------
+async function handleFlashToggle() {
+  if (cameraBusy) return;
+
+  if (!isCameraOn) {
+    showToast("Nyalakan kamera dulu.", "warn");
+    return;
+  }
+
+  if (!torchSupported) {
+    showToast(
+      isFrontCamera
+        ? "Kamera depan tidak punya flash."
+        : "Browser atau perangkat ini tidak mendukung flash.",
+      "warn",
+    );
+    return;
+  }
+
+  const track = currentStream && currentStream.getVideoTracks()[0];
+  if (!track) return;
+
+  try {
+    await track.applyConstraints({ advanced: [{ torch: !torchOn }] });
+    torchOn = !torchOn;
+    updateControlsUI();
+  } catch (err) {
+    console.error("Gagal mengubah flash:", err);
+    showToast("Flash tidak bisa dinyalakan.", "warn");
+  }
+}
+
+// ------------------------------------------
+// Tombol: ganti kamera depan / belakang
+// ------------------------------------------
+async function handleSwitchCamera() {
+  if (cameraBusy) return;
+  cameraBusy = true;
+
+  // animasi putar singkat pada ikon
+  btnSwitch.classList.remove("spinning");
+  void btnSwitch.offsetWidth; // restart animasi
+  btnSwitch.classList.add("spinning");
+
+  try {
+    // Perangkat dengan 1 kamera (kebanyakan laptop) tidak bisa ganti
+    let cameraCount = 2;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      cameraCount = devices.filter((d) => d.kind === "videoinput").length;
+    } catch (e) {
+      /* abaikan, anggap bisa ganti */
+    }
+    if (cameraCount < 2) {
+      showToast("Perangkat ini hanya punya satu kamera.", "warn");
+      return;
+    }
+
+    const previous = facingMode;
+    facingMode = facingMode === "environment" ? "user" : "environment";
+    updateControlsUI();
+
+    // Kamera sedang mati: cukup simpan pilihan, dipakai saat kamera dinyalakan
+    if (!isCameraOn) return;
+
+    const ok = await startCamera();
+    if (!ok) {
+      // Gagal pindah: kembali ke kamera sebelumnya
+      facingMode = previous;
+      await startCamera();
+      showToast("Gagal mengganti kamera.", "warn");
+    }
+  } finally {
+    cameraBusy = false;
+  }
+}
+
+// ==========================================
+// CANVAS (ukuran mengikuti layar, tajam di layar retina)
+// ==========================================
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvasEl.clientWidth;
+  const h = canvasEl.clientHeight;
+  if (!w || !h) return;
+
+  canvasEl.width = Math.round(w * dpr);
+  canvasEl.height = Math.round(h * dpr);
+  // Semua koordinat gambar memakai satuan CSS pixel
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function clearCanvas() {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+  ctx.restore();
+}
+
+// Video ditampilkan dengan object-fit: cover (memenuhi layar, sisi lebih
+// dipotong). Posisi bounding box dari model harus dikonversi dengan rumus
+// yang sama supaya kotak tetap pas di atas objek.
+function mapVideoToCanvas(cw, ch) {
+  const vw = videoEl.videoWidth;
+  const vh = videoEl.videoHeight;
+  const scale = Math.max(cw / vw, ch / vh);
+  return {
+    scale,
+    offsetX: (cw - vw * scale) / 2,
+    offsetY: (ch - vh * scale) / 2,
+  };
 }
 
 // ==========================================
@@ -240,27 +484,41 @@ function stopCamera() {
 // ==========================================
 
 let model = null;
+let modelStatus = "loading"; // "loading" | "ready" | "error"
+
+function renderModelStatus() {
+  const chip = $("model-chip");
+  const chipText = $("model-chip-text");
+  const chipSpinner = chip.querySelector(".spinner-sm");
+
+  chip.hidden = modelStatus === "ready";
+  chip.classList.toggle("error", modelStatus === "error");
+  chipSpinner.hidden = modelStatus !== "loading";
+  chipText.textContent =
+    modelStatus === "error"
+      ? "Model AI gagal dimuat. Periksa koneksi internet."
+      : "Memuat model AI…";
+
+  updateAIButton();
+}
 
 async function loadModel() {
-  showOverlay(
-    "Memuat Model AI (COCO-SSD)...",
-    "Mengunduh bobot model ± 5MB. Mohon tunggu.",
-  );
+  modelStatus = "loading";
+  renderModelStatus();
 
   try {
     // Nama global dari library adalah "cocoSsd" (S besar)
     // Varian lain: 'mobilenet_v2' (lebih akurat) atau 'mobilenet_v1'
     model = await cocoSsd.load({ base: "lite_mobilenet_v2" });
 
-    hideOverlay();
+    modelStatus = "ready";
+    renderModelStatus();
     showToast("Model AI siap digunakan!");
     console.log("Model berhasil dimuat:", model);
   } catch (err) {
     console.error("Gagal memuat model:", err);
-    showOverlay(
-      "Gagal Memuat Model AI",
-      "Periksa koneksi internet Anda. Model perlu diunduh pertama kali.",
-    );
+    modelStatus = "error";
+    renderModelStatus();
   }
 }
 
@@ -271,6 +529,7 @@ async function loadModel() {
 // [{ bbox: [x, y, width, height], class: "person", score: 0.95 }, ...]
 
 let isAIDetecting = false;
+let detectLoopRunning = false;
 let lastSaveTime = 0;
 const SAVE_INTERVAL_MS = 5000; // simpan ke DB maksimal sekali per 5 detik
 
@@ -307,20 +566,25 @@ async function saveDetectionsToDb(targets) {
   }
 }
 
-async function detectLoop() {
-  const video = document.getElementById("video");
-  const canvas = document.getElementById("canvas");
-  const ctx = canvas.getContext("2d");
+function drawPredictions(predictions) {
+  const cw = canvasEl.clientWidth;
+  const ch = canvasEl.clientHeight;
+  if (!cw || !ch || !videoEl.videoWidth) return;
 
-  // Hentikan loop jika AI dimatikan, kamera mati, atau model belum siap
-  if (!isAIDetecting || !isCameraOn || !model) return;
+  const { scale, offsetX, offsetY } = mapVideoToCanvas(cw, ch);
 
-  const predictions = await model.detect(video);
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, cw, ch);
 
   predictions.forEach((pred) => {
-    const [x, y, w, h] = pred.bbox;
+    // Konversi koordinat video -> koordinat layar
+    let x = pred.bbox[0] * scale + offsetX;
+    const y = pred.bbox[1] * scale + offsetY;
+    const w = pred.bbox[2] * scale;
+    const h = pred.bbox[3] * scale;
+
+    // Video kamera depan dicerminkan, kotak ikut dicerminkan (teks tetap normal)
+    if (isFrontCamera) x = cw - x - w;
+
     const isTarget = TARGET_CLASSES.includes(pred.class);
     const confidence = pred.score;
 
@@ -332,24 +596,18 @@ async function detectLoop() {
     if (isTarget && confidence > MIN_CONFIDENCE) {
       const label = `${pred.class} ${(confidence * 100).toFixed(0)}%`;
 
-      ctx.font = "bold 14px sans-serif"; // set font DULU sebelum measureText
-      const textWidth = ctx.measureText(label).width;
-      const labelY = y < 25 ? y + 25 : y; // cegah label keluar dari canvas
+      ctx.font = '600 14px "Plus Jakarta Sans", sans-serif'; // set font DULU sebelum measureText
+      const labelW = ctx.measureText(label).width + 12;
+      const labelY = y < 28 ? y + 28 : y; // cegah label keluar dari atas layar
+      const labelX = Math.min(Math.max(x, 0), cw - labelW); // cegah keluar dari sisi layar
 
       ctx.fillStyle = "#10b981";
-      ctx.fillRect(x, labelY - 25, textWidth + 10, 25);
+      ctx.fillRect(labelX, labelY - 28, labelW, 28);
 
       ctx.fillStyle = "#ffffff";
-      ctx.fillText(label, x + 5, labelY - 7);
+      ctx.fillText(label, labelX + 6, labelY - 9);
     }
   });
-
-  // Simpan ke database jika ada target terdeteksi
-  const targets = getTargetPredictions(predictions);
-  saveDetectionsToDb(targets);
-
-  // Ulangi di frame berikutnya
-  requestAnimationFrame(detectLoop);
 }
 
 // Ambil hanya objek target dengan confidence cukup (bisa dipakai untuk simpan ke database)
@@ -359,43 +617,140 @@ function getTargetPredictions(predictions) {
   );
 }
 
+async function detectLoop() {
+  // Cegah dua loop berjalan bersamaan (mis. saat ganti kamera)
+  if (detectLoopRunning) return;
+  detectLoopRunning = true;
+
+  try {
+    // Berhenti jika AI dimatikan, kamera mati, atau model belum siap
+    while (isAIDetecting && isCameraOn && model) {
+      if (videoEl.readyState >= 2) {
+        const predictions = await model.detect(videoEl);
+
+        // Status bisa berubah selama model menganalisis frame
+        if (!isAIDetecting || !isCameraOn) break;
+
+        drawPredictions(predictions);
+        saveDetectionsToDb(getTargetPredictions(predictions));
+      }
+
+      // Tunggu frame berikutnya
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+  } catch (err) {
+    console.error("Error pada loop deteksi:", err);
+  } finally {
+    detectLoopRunning = false;
+    if (!isAIDetecting || !isCameraOn) clearCanvas();
+  }
+}
+
 // ==========================================
 // TOMBOL START / STOP AI
 // ==========================================
 
+function updateAIButton() {
+  if (modelStatus === "loading") {
+    btnAI.disabled = true;
+    btnAI.textContent = "Memuat AI…";
+    btnAI.className = "btn btn-success";
+    return;
+  }
+
+  btnAI.disabled = false;
+
+  if (modelStatus === "error") {
+    btnAI.textContent = "Muat ulang model AI";
+    btnAI.className = "btn btn-success";
+    return;
+  }
+
+  btnAI.textContent = isAIDetecting ? "Stop AI" : "Start AI";
+  btnAI.className = isAIDetecting ? "btn btn-danger" : "btn btn-success";
+}
+
+function setAI(on) {
+  isAIDetecting = on;
+  updateAIButton();
+
+  if (on) {
+    detectLoop();
+  } else {
+    clearCanvas();
+  }
+}
+
 function setupAIButton() {
-  const btnAI = document.getElementById("btn-ai"); // sesuaikan dengan id tombol di HTML-mu
-  if (!btnAI) return;
-
   btnAI.addEventListener("click", () => {
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-
-    if (!isAIDetecting) {
-      if (!model) {
-        showToast("Model AI belum siap.");
-        return;
-      }
-      isAIDetecting = true;
-      btnAI.textContent = "Stop AI";
-      btnAI.className = "btn btn-danger";
-      detectLoop();
-    } else {
-      isAIDetecting = false;
-      btnAI.textContent = "Start AI";
-      btnAI.className = "btn btn-success";
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (modelStatus === "error") {
+      loadModel();
+      return;
     }
+    if (modelStatus !== "ready") return;
+
+    if (isAIDetecting) {
+      setAI(false);
+      return;
+    }
+
+    if (!isCameraOn) {
+      showToast("Nyalakan kamera dulu.", "warn");
+      return;
+    }
+    setAI(true);
   });
+}
+
+// ==========================================
+// TAMPILAN TOMBOL KONTROL
+// ==========================================
+
+function updateControlsUI() {
+  // Kamera
+  btnCamera.classList.toggle("is-on", isCameraOn);
+  btnCamera.setAttribute("aria-pressed", String(isCameraOn));
+  $("label-camera").textContent = isCameraOn ? "Kamera aktif" : "Kamera mati";
+
+  // Flash: redup jika kamera mati / tidak didukung (tetap bisa diketuk untuk lihat alasannya)
+  btnFlash.classList.toggle("torch-on", torchOn);
+  btnFlash.setAttribute("aria-pressed", String(torchOn));
+  btnFlash.setAttribute("aria-disabled", String(!isCameraOn || !torchSupported));
+  $("label-flash").textContent = torchOn ? "Flash menyala" : "Flash mati";
+
+  // Switch: label menunjukkan kamera yang sedang dipakai
+  $("label-switch").textContent =
+    facingMode === "user" ? "Kamera depan" : "Kamera belakang";
+}
+
+function setupControls() {
+  btnCamera.addEventListener("click", handleCameraToggle);
+  btnFlash.addEventListener("click", handleFlashToggle);
+  btnSwitch.addEventListener("click", handleSwitchCamera);
+
+  updateControlsUI();
 }
 
 // ==========================================
 // JALANKAN SAAT HALAMAN SIAP
 // ==========================================
 
-document.addEventListener("DOMContentLoaded", async () => {
+document.addEventListener("DOMContentLoaded", () => {
   initDatabase();
   setupAIButton();
-  await startCamera();
-  await loadModel();
+  setupControls();
+  renderOverlay();
+  renderModelStatus();
+
+  // Canvas mengikuti ukuran layar (rotasi HP, resize jendela)
+  if ("ResizeObserver" in window) {
+    new ResizeObserver(resizeCanvas).observe($("camera-container"));
+  } else {
+    window.addEventListener("resize", resizeCanvas);
+  }
+  window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 200));
+
+  // Kamera dan model dimuat bersamaan agar lebih cepat siap
+  loadModel();
+  startCamera();
 });

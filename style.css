@@ -1,36 +1,89 @@
+/* ==========================================
+   TOKEN
+========================================== */
+:root {
+    --bg: #0b1220;
+    --surface: rgba(11, 18, 32, 0.62);
+    --surface-solid: #172033;
+    --line: rgba(255, 255, 255, 0.14);
+    --text: #f3f6fb;
+    --text-dim: #aab4c5;
+    --green: #10b981;
+    --green-dark: #0e9f6e;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --flash: #fbbf24;
+
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html,
 body {
+    height: 100%;
     margin: 0;
-    padding: 12px;
-    font-family: sans-serif;
-    background: #111827;
+}
+
+body {
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    /* cegah pull-to-refresh & zoom ganda saat mengetuk tombol cepat */
+    overscroll-behavior: none;
+    touch-action: manipulation;
+}
+
+[hidden] {
+    display: none !important;
 }
 
 /* ==========================================
-   CONTAINER KAMERA
+   SHELL APLIKASI
+   Mobile: layar penuh. Desktop: kartu di tengah.
 ========================================== */
-#camera-container {
+#app {
     position: relative;
     width: 100%;
-    max-width: 900px;
-    margin: 12px auto;
-    /* min-height agar overlay "Memulai Sistem..." terlihat
-       sebelum video selesai dimuat */
-    min-height: 240px;
+    height: 100%;
+    height: 100dvh;
     background: #000;
-    border-radius: 12px;
     overflow: hidden;
 }
 
 /* ==========================================
+   CONTAINER KAMERA (mengisi seluruh #app)
+========================================== */
+#camera-container {
+    position: absolute;
+    inset: 0;
+    background: #000;
+}
+
+/* ==========================================
    LAYER 1: VIDEO
+   object-fit: cover supaya mengisi layar HP.
+   Posisi bounding box dihitung ulang di app.js
+   (mapVideoToCanvas) agar tetap pas dengan "cover".
 ========================================== */
 #video {
-    display: block;
+    position: absolute;
+    inset: 0;
     width: 100%;
-    height: auto;
-    /* Tinggi mengikuti rasio asli video, sehingga canvas
-       (yang menutupi 100% container) tetap pas dan bounding box tidak meleset.
-       Jangan pakai object-fit: cover di sini. */
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Kamera depan dicerminkan seperti cermin */
+#video.mirrored {
+    transform: scaleX(-1);
 }
 
 /* ==========================================
@@ -38,8 +91,7 @@ body {
 ========================================== */
 #canvas {
     position: absolute;
-    top: 0;
-    left: 0;
+    inset: 0;
     width: 100%;
     height: 100%;
     pointer-events: none;
@@ -47,24 +99,37 @@ body {
 }
 
 /* ==========================================
-   LAYER 3: OVERLAY
+   LAYER 3: OVERLAY STATUS KAMERA
 ========================================== */
 #overlay-msg {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.8);
+    inset: 0;
+    background: rgba(5, 9, 18, 0.88);
     display: flex;
     justify-content: center;
     align-items: center;
     flex-direction: column;
-    color: white;
     text-align: center;
-    padding: 16px;
-    box-sizing: border-box;
+    padding: 24px;
     z-index: 5;
+}
+
+#overlay-title {
+    margin: 0 0 6px;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+#overlay-text {
+    margin: 0;
+    max-width: 30ch;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-dim);
+}
+
+#overlay-text:empty {
+    display: none;
 }
 
 /* ==========================================
@@ -73,47 +138,371 @@ body {
 .spinner {
     width: 40px;
     height: 40px;
-    border: 4px solid rgba(255, 255, 255, 0.3);
-    border-top: 4px solid white;
+    border: 4px solid rgba(255, 255, 255, 0.25);
+    border-top-color: #fff;
     border-radius: 50%;
     animation: spin 1s linear infinite;
-    margin-bottom: 15px;
+    margin-bottom: 16px;
+}
+
+.spinner-sm {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+    flex: none;
 }
 
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* ==========================================
-   TOMBOL (class ini diganti-ganti oleh app.js)
+   BAR ATAS
 ========================================== */
-.btn {
-    display: block;
-    margin: 0 auto;
-    padding: 12px 28px;
-    border: none;
-    border-radius: 8px;
-    font-size: 16px;
-    font-weight: bold;
-    color: #fff;
-    cursor: pointer;
+.topbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: calc(var(--safe-top) + 12px) calc(var(--safe-right) + 16px) 28px calc(var(--safe-left) + 16px);
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
+    pointer-events: none;
 }
 
-.btn-success { background: #10b981; }
-.btn-danger  { background: #ef4444; }
+.topbar>* {
+    pointer-events: auto;
+}
+
+.topbar h1 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
 
 /* ==========================================
    BADGE STATUS DATABASE
 ========================================== */
 .status-badge {
     display: inline-block;
-    padding: 4px 10px;
+    padding: 5px 11px;
     border-radius: 999px;
     font-size: 12px;
-    font-weight: bold;
+    font-weight: 700;
+    color: #fff;
+    background: var(--amber);
+}
+
+.status-badge.online {
+    background: var(--green);
+}
+
+.status-badge.demo {
+    background: var(--amber);
+    color: #1f1300;
+}
+
+/* ==========================================
+   CHIP: MODEL AI SEDANG DIMUAT
+========================================== */
+.model-chip {
+    position: absolute;
+    z-index: 10;
+    top: calc(var(--safe-top) + 58px);
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: calc(100% - 32px);
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--surface);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--line);
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.model-chip.error {
+    border-color: rgba(239, 68, 68, 0.6);
+}
+
+/* ==========================================
+   DOCK KONTROL
+========================================== */
+.dock {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 40px calc(var(--safe-right) + 16px) calc(var(--safe-bottom) + 18px) calc(var(--safe-left) + 16px);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.78) 30%, rgba(0, 0, 0, 0));
+}
+
+/* ==========================================
+   TOMBOL AI (class ini diganti-ganti oleh app.js)
+========================================== */
+.btn {
+    display: block;
+    width: 100%;
+    max-width: 420px;
+    min-height: 54px;
+    margin: 0 auto;
+    padding: 14px 28px;
+    border: none;
+    border-radius: 16px;
+    font: inherit;
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    cursor: pointer;
+    transition: transform 0.12s ease, background-color 0.2s ease;
+}
+
+.btn:active {
+    transform: scale(0.97);
+}
+
+.btn:disabled {
+    background: #3a4457;
+    color: var(--text-dim);
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-success {
+    background: var(--green);
+}
+
+.btn-danger {
+    background: var(--red);
+}
+
+/* ==========================================
+   TOMBOL KONTROL KAMERA
+========================================== */
+.controls {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto;
+}
+
+.ctrl {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+}
+
+.ctrl-icon {
+    width: 56px;
+    height: 56px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--surface);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border: 1.5px solid var(--line);
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.12s ease;
+}
+
+.ctrl:active .ctrl-icon {
+    transform: scale(0.92);
+}
+
+.ctrl-icon svg {
+    width: 26px;
+    height: 26px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.ctrl-label {
+    max-width: 100%;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Garis coret: tampil saat tombol "mati" */
+.ctrl .slash {
+    stroke-width: 2.2;
+}
+
+.ctrl.is-on .slash,
+.ctrl.torch-on .slash {
+    display: none;
+}
+
+/* Kamera aktif */
+.ctrl.is-on .ctrl-icon {
+    background: var(--green);
+    border-color: var(--green);
     color: #fff;
 }
 
-.status-badge.online { background: #10b981; }
-.status-badge.demo   { background: #f59e0b; }
+/* Flash menyala */
+.ctrl.torch-on .ctrl-icon {
+    background: var(--flash);
+    border-color: var(--flash);
+    color: #261a00;
+}
+
+.ctrl.torch-on .ctrl-icon svg {
+    fill: currentColor;
+}
+
+/* Fitur tidak didukung perangkat: tetap bisa diketuk untuk melihat alasannya */
+.ctrl[aria-disabled="true"] {
+    opacity: 0.45;
+}
+
+/* Tombol switch berputar saat diketuk */
+#btn-switch.spinning .ctrl-icon svg {
+    animation: flip 0.5s ease;
+}
+
+@keyframes flip {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Fokus keyboard terlihat jelas */
+.btn:focus-visible,
+.ctrl:focus-visible .ctrl-icon {
+    outline: 3px solid #fff;
+    outline-offset: 3px;
+}
+
+/* ==========================================
+   TOAST
+========================================== */
+.toast {
+    position: absolute;
+    z-index: 20;
+    left: 50%;
+    bottom: calc(var(--safe-bottom) + 190px);
+    transform: translateX(-50%);
+    max-width: calc(100% - 32px);
+    padding: 11px 18px;
+    border-radius: 12px;
+    background: var(--green);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.toast.warn {
+    background: var(--amber);
+    color: #1f1300;
+}
+
+/* ==========================================
+   DESKTOP / TABLET: tampil sebagai kartu di tengah
+========================================== */
+@media (min-width: 768px) {
+    body {
+        display: grid;
+        place-items: center;
+        background: #060b16;
+    }
+
+    #app {
+        width: min(960px, calc(100vw - 48px));
+        height: min(720px, calc(100dvh - 48px));
+        border-radius: 20px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+    }
+}
+
+/* HP posisi landscape: dock dirapatkan agar video tetap terlihat */
+@media (max-height: 480px) and (orientation: landscape) {
+    .dock {
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        padding-top: 20px;
+    }
+
+    .btn {
+        width: auto;
+        min-width: 160px;
+        margin: 0;
+    }
+
+    .controls {
+        width: auto;
+        max-width: none;
+        margin: 0;
+    }
+
+    .ctrl {
+        flex: none;
+        width: 76px;
+    }
+
+    .ctrl-icon {
+        width: 46px;
+        height: 46px;
+    }
+
+    .toast {
+        bottom: calc(var(--safe-bottom) + 110px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .spinner,
+    .spinner-sm {
+        animation-duration: 3s;
+    }
+
+    #btn-switch.spinning .ctrl-icon svg {
+        animation: none;
+    }
+
+    .btn,
+    .ctrl-icon {
+        transition: none;
+    }
+}
